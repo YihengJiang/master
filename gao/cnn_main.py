@@ -34,7 +34,6 @@ class P():
     LOAD_MODEL = SAVE_DIR+"_4_6"  # set it to false or none if do not load,or set it to the direction which you want to load.
     SAVE_MODEL = [False,
                   0.4]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
-
     LR = 0.1
     WEIGHT_DECAY = 1e-4
     EPOCH = 10
