@@ -21,7 +21,7 @@ import pickle as pk
 
 # parameters
 class P():
-    #TEST_AVERAGE_SCORE = True
+    # TEST_AVERAGE_SCORE = True
 
     DATA_TRAIN = "/home/jiangyiheng/matlabProjects/xiangmu/mfcc/train/"
     DATA_TEST = "/home/jiangyiheng/matlabProjects/xiangmu/mfcc/test/"
@@ -31,9 +31,10 @@ class P():
     ROI_TRAIN = "/home/jiangyiheng/pycharmProjects/master/gao/Data/roi_train.pkl"
     ROI_TEST = "/home/jiangyiheng/pycharmProjects/master/gao/Data/roi_test.pkl"
 
+    PERFORM_BATCH_FREQUENCY = 100
     LOAD_MODEL = SAVE_DIR  # set it to false or none if do not load,or set it to the direction which you want to load.
     SAVE_MODEL = [True,
-                  0.65]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
+                  0.69]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
     LR = 0.001
     WEIGHT_DECAY = 1e-4
     EPOCH = 40
@@ -42,16 +43,17 @@ class P():
     STRIDE = 50
     FRAMELENS = np.linspace(100, 450, 8).astype(int)
 
-    net_conv_kernel_sizes = [5, 3, 3, 3, 2]  # this parameter cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter length cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter cannot more than actual model need,cause that len(net_conv_kernel_sizes) will be used in the network.
+    net_conv_kernel_sizes = [5, 3, 3, 3,
+                             2]  # this parameter cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter length cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter cannot more than actual model need,cause that len(net_conv_kernel_sizes) will be used in the network.
     net_pooling_kernel_sizes = [[2, 3], [2, 3], [2, 2], [2, 2], [2, 2]]
     net_channels = [64, 128, 256, 512, 512]
     net_num_classes = 16
     net_in_channel = 1
     net_batch_size = 64
-    #net_mile_stone = np.linspace(5, 80, 5).astype(int)  # lr descent as epoch increase
-    #net_stone_time = 0.85  # lr descent time,i.e.lr=0.1*lr when lr descent
+    # net_mile_stone = np.linspace(5, 80, 5).astype(int)  # lr descent as epoch increase
+    # net_stone_time = 0.85  # lr descent time,i.e.lr=0.1*lr when lr descent
     net_gap = (
-    2, 1)  # it can also be None in any dim,that means the dim will not be change in output of this gap layer.
+        2, 1)  # it can also be None in any dim,that means the dim will not be change in output of this gap layer.
 
 
 class GenRoi():
@@ -96,7 +98,7 @@ class GenRoi():
 
 class DataGet_Train(tud.Dataset):
     def __init__(self, data, gen, frameLen):  # the second arg is index of frameLens
-        self.i=np.where(gen.frameLens==frameLen)[0][0]#get correspond i in genRoi
+        self.i = np.where(gen.frameLens == frameLen)[0][0]  # get correspond i in genRoi
         self.count = len(gen.padding[self.i])
         self.origin_data_count = len(data.label)
         self.gen = gen
@@ -112,8 +114,9 @@ class DataGet_Train(tud.Dataset):
                 # if diffR larger than length of data ,data[:diffR] will return data and donnot throw exception
                 data = np.concatenate([data, data[:, :diffR]], axis=1)
                 diffR = self.gen.frameLens[self.i] - np.size(data, axis=1)
-        data = data[np.newaxis, :, :]
-        return tc.from_numpy(data).type(tc.FloatTensor), self.data.label[dt[0]], dt[0]
+
+        data = cmvn(data)
+        return tc.from_numpy(data[np.newaxis, :, :]).type(tc.FloatTensor), self.data.label[dt[0]], dt[0]
 
     def __len__(self):
         return self.count
@@ -126,6 +129,7 @@ class DataGet_Test(tud.Dataset):
 
     def __getitem__(self, item):
         data = self.data.data[item]
+        data = cmvn(data)
         return tc.from_numpy(data[np.newaxis, :, :]).type(tc.FloatTensor), self.data.label[item], 0
 
     def __len__(self):
@@ -134,7 +138,7 @@ class DataGet_Test(tud.Dataset):
 
 class Data():
     def __init__(self, pklDir, dataDir):
-        files=[]
+        files = []
         try:
             files = os.listdir(dataDir)
             files.sort()
@@ -149,21 +153,32 @@ class Data():
         self.dataSize = data[1]
         self.label = data[2]
 
+
+def cmvn(data):
+    # mu=np.mean(data,1)[:,np.newaxis]
+    std = np.std(data, 1)[:, np.newaxis]
+    # data-=mu
+    data /= std
+    return data
+
+
 @ut.timing("TotalTime")
 def main():
     # get train data
     train_loader = trainDataLoader(P.FRAMELENS)
-    totals,test_loader=testDataLoader(P.FRAMELENS)#totals is shorter than test_loader,i.e.len(test_loader)-len(totals)=1
+    totals, test_loader = testDataLoader(
+        P.FRAMELENS)  # totals is shorter than test_loader,i.e.len(test_loader)-len(totals)=1
 
     model = modelConstruct()
 
     criterion = nn.CrossEntropyLoss().cuda()
     optimizer = tc.optim.Adam(model.parameters(), P.LR, weight_decay=P.WEIGHT_DECAY)
-    #scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=P.net_mile_stone, gamma=P.net_stone_time)
+    # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=P.net_mile_stone, gamma=P.net_stone_time)
 
     for epoch in range(P.EPOCH):
-        #learning_rate_step(scheduler, epoch)
+        # learning_rate_step(scheduler, epoch)
         # train for one epoch
+        setNum = len(P.FRAMELENS)
         for i in range(setNum):  # cross train by different data set in every epoch
             train(train_loader[i], model, criterion, optimizer, epoch, i)
             if np.mod(epoch * setNum + i, P.TEST_FREQUENCY) == 0 and epoch * setNum + i != 0:
@@ -256,7 +271,7 @@ def train(loader, model, criterion, optimizer, epoch, set):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if i % 100 == 0:
+        if i % P.PERFORM_BATCH_FREQUENCY == 0:
             pred_y = tc.max(output, 1)[1].data.squeeze()
             accuracy = sum(pred_y == target) / float(target.size(0))
             string = "[train] epoch:%d | set:%d | Loss:%f | accuracy:%f\n" % (epoch, set, loss, accuracy)
@@ -273,33 +288,35 @@ def test(loader, model, epoch, totals):
     """Test for one epoch on the training set"""
     model.eval()
     accuracy = []
-    #test 1
+    # test 1
     for i in range(len(totals)):
         output, target, ind = test_core(loader[i], model)
         _output = []
         _target = []
         for j in range(totals[i]):
             sum_ind = np.where(ind == j)
-            _output.append(np.average(output[sum_ind], 0)[np.newaxis, :])
+            _output.append(np.average(output[sum_ind[0]], 0)[np.newaxis, :])
             _target.append(target[sum_ind[0][0]])
         output = np.concatenate(_output, 0)
         target = np.array(_target)
         total = totals[i]
         _accuracy = testPerform(output, target, total)
         accuracy.append(_accuracy)
-    accuracy1=np.mean(accuracy)
-    strings = "[==================test(score average)==================] | epoch:"+str(epoch)+" | mean accuracy:"+str(accuracy1)+" | accuracy:"+ str(accuracy)+"\n"
+    accuracy1 = np.mean(accuracy)
+    strings = "[==================test(score average)==================] | epoch:" + str(
+        epoch) + " | mean accuracy:" + str(accuracy1) + " | accuracy:" + str(accuracy) + "\n"
     with ut.Log(strings):
         pass
-    #test 2
+    # test 2
     output, target, _ = test_core(loader[-1], model)
     total = len(target)
     # measure accuracy and record loss
     accuracy2 = testPerform(output, target, total)
-    strings = "[==============================test(usual)==============================] | epoch:%d | accuracy:%f\n" % (epoch, accuracy2)
+    strings = "[==============================test(usual)==============================] | epoch:%d | accuracy:%f\n" % (
+    epoch, accuracy2)
     with ut.Log(strings):
         pass
-    return accuracy1,accuracy2
+    return accuracy1, accuracy2
 
 
 def testPerform(output, target, total):
@@ -349,20 +366,19 @@ def testDataLoader(frameLens):
         data_set = DataGet_Train(testD, gen_test, frameLens[i])  # use 'train get' way to generate test data
         test_loader.append(tud.DataLoader(data_set, batch_size=P.net_batch_size, shuffle=False, **kwargs))
         totals.append(data_set.origin_data_count)
-    #test 2
+    # test 2
     data_set = DataGet_Test(testD)
     test_loader.append(tud.DataLoader(data_set, batch_size=1, shuffle=False, **kwargs))
-    return totals,test_loader
+    return totals, test_loader
 
 
 def testModel():
-    setNum=len(P.FRAMELENS)
     totals, test_loader = testDataLoader(P.FRAMELENS)
     model = modelConstruct()
     test(test_loader, model, 0, totals)
 
 
 if __name__ == '__main__':
-    #testModel()
-    with ut.Log("================================================================================\n"):
-        main()
+    # testModel()
+    # with ut.Log("================================================================================\n"):
+    main()
