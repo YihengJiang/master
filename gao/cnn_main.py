@@ -21,7 +21,7 @@ import pickle as pk
 
 # parameters
 class P():
-    TEST_AVERAGE_SCORE = True
+    #TEST_AVERAGE_SCORE = True
 
     DATA_TRAIN = "/home/jiangyiheng/matlabProjects/xiangmu/mfcc/train/"
     DATA_TEST = "/home/jiangyiheng/matlabProjects/xiangmu/mfcc/test/"
@@ -33,24 +33,23 @@ class P():
 
     LOAD_MODEL = SAVE_DIR  # set it to false or none if do not load,or set it to the direction which you want to load.
     SAVE_MODEL = [True,
-                  0.4]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
-    LR = 0.1
+                  0.65]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
+    LR = 0.001
     WEIGHT_DECAY = 1e-4
-    EPOCH = 8
+    EPOCH = 40
     TEST_FREQUENCY = 1
 
     STRIDE = 50
-    FRAMELENS = np.linspace(50, 450, 9).astype(int)
+    FRAMELENS = np.linspace(100, 450, 8).astype(int)
 
-    net_conv_kernel_sizes = [5, 3, 3, 3,
-                             1]  # this parameter cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter length cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter cannot more than actual model need,cause that len(net_conv_kernel_sizes) will be used in the network.
+    net_conv_kernel_sizes = [5, 3, 3, 3, 2]  # this parameter cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter length cannot more than actual model need,cause that len(    net_conv_kernel_sizes = [5, 3, 3, 3, 1]#this parameter cannot more than actual model need,cause that len(net_conv_kernel_sizes) will be used in the network.
     net_pooling_kernel_sizes = [[2, 3], [2, 3], [2, 2], [2, 2], [2, 2]]
     net_channels = [64, 128, 256, 512, 512]
     net_num_classes = 16
     net_in_channel = 1
     net_batch_size = 64
-    net_mile_stone = [1, 3, 7]  # lr descent as epoch increase
-    net_stone_time = 0.1  # lr descent time,i.e.lr=0.1*lr when lr descent
+    #net_mile_stone = np.linspace(5, 80, 5).astype(int)  # lr descent as epoch increase
+    #net_stone_time = 0.85  # lr descent time,i.e.lr=0.1*lr when lr descent
     net_gap = (
     2, 1)  # it can also be None in any dim,that means the dim will not be change in output of this gap layer.
 
@@ -96,10 +95,10 @@ class GenRoi():
 
 
 class DataGet_Train(tud.Dataset):
-    def __init__(self, data, gen, i):  # the second arg is index of frameLens
-        self.count = len(gen.padding[i])
+    def __init__(self, data, gen, frameLen):  # the second arg is index of frameLens
+        self.i=np.where(gen.frameLens==frameLen)[0][0]#get correspond i in genRoi
+        self.count = len(gen.padding[self.i])
         self.origin_data_count = len(data.label)
-        self.i = i
         self.gen = gen
         self.data = data
 
@@ -144,29 +143,28 @@ class Data():
             print("origin data file doesn't exist")
 
         data = loadData(pklDir, files)
+
         # data = ut.multiReadProc(files)
         self.data = data[0]
         self.dataSize = data[1]
         self.label = data[2]
 
-
+@ut.timing("TotalTime")
 def main():
-    setNum = len(P.FRAMELENS)
     # get train data
-    train_loader = trainDataLoader(setNum)
-    totals,test_loader=testDataLoader(setNum)
+    train_loader = trainDataLoader(P.FRAMELENS)
+    totals,test_loader=testDataLoader(P.FRAMELENS)#totals is shorter than test_loader,i.e.len(test_loader)-len(totals)=1
 
     model = modelConstruct()
 
     criterion = nn.CrossEntropyLoss().cuda()
     optimizer = tc.optim.Adam(model.parameters(), P.LR, weight_decay=P.WEIGHT_DECAY)
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=P.net_mile_stone, gamma=P.net_stone_time)
+    #scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=P.net_mile_stone, gamma=P.net_stone_time)
 
     for epoch in range(P.EPOCH):
-        learning_rate_step(scheduler, epoch)
+        #learning_rate_step(scheduler, epoch)
         # train for one epoch
         for i in range(setNum):  # cross train by different data set in every epoch
-            accuracy = test(test_loader, model, epoch, totals)
             train(train_loader[i], model, criterion, optimizer, epoch, i)
             if np.mod(epoch * setNum + i, P.TEST_FREQUENCY) == 0 and epoch * setNum + i != 0:
                 # evaluate on test set
@@ -174,15 +172,15 @@ def main():
                 modelSave(accuracy, model.state_dict(), epoch, i)
 
 
-def trainDataLoader(setNum):
+def trainDataLoader(frameLens):
     trainD = Data(P.PKL_TRAIN, P.DATA_TRAIN)
     # generate Roi
     gen = genRoi(trainD.dataSize, P.STRIDE, P.FRAMELENS, P.ROI_TRAIN)
     # construct train data set loader
     train_loader = []
     kwargs = {'num_workers': 16, 'pin_memory': True}
-    for i in range(setNum):
-        data_set = DataGet_Train(trainD, gen, i)
+    for i in range(len(frameLens)):
+        data_set = DataGet_Train(trainD, gen, frameLens[i])
         train_loader.append(tud.DataLoader(data_set, batch_size=P.net_batch_size, shuffle=True, **kwargs))
     return train_loader
 
@@ -226,7 +224,7 @@ def loadData(pklDir, files):  # numpy is byte data ,so must indicate that 'b' mo
 
 
 def modelSave(accuracy, save, epoch, set):
-    if P.SAVE_MODEL[0] and accuracy > P.SAVE_MODEL[1]:
+    if P.SAVE_MODEL[0] and accuracy[1] > P.SAVE_MODEL[1] and accuracy[0] > P.SAVE_MODEL[1]:
         dir = P.SAVE_DIR + "_" + str(epoch) + "_" + str(set)
         if os.path.exists(dir):
             os.system("rm " + dir)
@@ -274,34 +272,34 @@ def train(loader, model, criterion, optimizer, epoch, set):
 def test(loader, model, epoch, totals):
     """Test for one epoch on the training set"""
     model.eval()
-    accuracy = 0
-    if P.TEST_AVERAGE_SCORE:
-        for i in range(len(totals)):
-            output, target, ind = test_core(loader[i], model)
-            _output = []
-            _target = []
-            for j in range(totals[i]):
-                sum_ind = np.where(ind == j)
-                _output.append(np.average(output[sum_ind], 0)[np.newaxis, :])
-                _target.append(target[sum_ind[0][0]])
-            output = np.concatenate(_output, 0)
-            target = np.array(_target)
-            total = totals[i]
-            accuracy = testPerform(output, target, total)
-            strings = "[==================test(score average,frame length:%d)==================] | epoch:%d | set:%d | accuracy:%f\n"\
-                      % (P.FRAMELENS[i], epoch, i, accuracy)
-            with ut.Log(strings):
-                pass
-
-    else:
-        output, target, _ = test_core(loader, model)
-        total = len(target)
-        # measure accuracy and record loss
-        accuracy = testPerform(output, target, total)
-        strings = "[==============================test(usual)==============================] | epoch:%d | accuracy:%f\n" % (epoch, accuracy)
-        with ut.Log(strings):
-            pass
-    return accuracy
+    accuracy = []
+    #test 1
+    for i in range(len(totals)):
+        output, target, ind = test_core(loader[i], model)
+        _output = []
+        _target = []
+        for j in range(totals[i]):
+            sum_ind = np.where(ind == j)
+            _output.append(np.average(output[sum_ind], 0)[np.newaxis, :])
+            _target.append(target[sum_ind[0][0]])
+        output = np.concatenate(_output, 0)
+        target = np.array(_target)
+        total = totals[i]
+        _accuracy = testPerform(output, target, total)
+        accuracy.append(_accuracy)
+    accuracy1=np.mean(accuracy)
+    strings = "[==================test(score average)==================] | epoch:"+str(epoch)+" | mean accuracy:"+str(accuracy1)+" | accuracy:"+ str(accuracy)+"\n"
+    with ut.Log(strings):
+        pass
+    #test 2
+    output, target, _ = test_core(loader[-1], model)
+    total = len(target)
+    # measure accuracy and record loss
+    accuracy2 = testPerform(output, target, total)
+    strings = "[==============================test(usual)==============================] | epoch:%d | accuracy:%f\n" % (epoch, accuracy2)
+    with ut.Log(strings):
+        pass
+    return accuracy1,accuracy2
 
 
 def testPerform(output, target, total):
@@ -339,28 +337,27 @@ def learning_rate_step(scheduler, epoch):
         pass
 
 
-def testDataLoader(setNum):
+def testDataLoader(frameLens):
     testD = Data(P.PKL_TEST, P.DATA_TEST)
     kwargs = {'num_workers': 16, 'pin_memory': True}
     totals = []
     test_loader = []
-    if P.TEST_AVERAGE_SCORE:
-        # generate Roi
-        gen_test = genRoi(testD.dataSize, P.STRIDE, P.FRAMELENS, P.ROI_TEST)
+    # test 1
+    gen_test = genRoi(testD.dataSize, P.STRIDE, P.FRAMELENS, P.ROI_TEST)
 
-        for i in range(setNum):
-            data_set = DataGet_Train(testD, gen_test, i)  # use 'train get' way to generate test data
-            test_loader.append(tud.DataLoader(data_set, batch_size=P.net_batch_size, shuffle=False, **kwargs))
-            totals.append(data_set.origin_data_count)
-    else:
-        data_set = DataGet_Test(testD)
-        test_loader = tud.DataLoader(data_set, batch_size=1, shuffle=False, **kwargs)
+    for i in range(len(frameLens)):
+        data_set = DataGet_Train(testD, gen_test, frameLens[i])  # use 'train get' way to generate test data
+        test_loader.append(tud.DataLoader(data_set, batch_size=P.net_batch_size, shuffle=False, **kwargs))
+        totals.append(data_set.origin_data_count)
+    #test 2
+    data_set = DataGet_Test(testD)
+    test_loader.append(tud.DataLoader(data_set, batch_size=1, shuffle=False, **kwargs))
     return totals,test_loader
 
 
 def testModel():
     setNum=len(P.FRAMELENS)
-    totals, test_loader = testDataLoader(setNum)
+    totals, test_loader = testDataLoader(P.FRAMELENS)
     model = modelConstruct()
     test(test_loader, model, 0, totals)
 
