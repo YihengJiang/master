@@ -1,10 +1,11 @@
 #!/usr/bin/env python3.6
 # -*- coding: utf-8 -*-
 
+
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
+from gao.statics_pooling import statics_pooling as staticPool
 
 class net(nn.Module):
     def __init__(self, conv_kernel_sizes, channels, num_classes, in_channel, pooling_kernel_sizes, gap):
@@ -28,6 +29,8 @@ class net(nn.Module):
             setattr(self, "pooling%i" % i, pooling)
             self.poolings.append(pooling)
 
+
+
         # change the last pooling to gap in the convs
         gapPooling = nn.AdaptiveAvgPool2d(gap)
         setattr(self, "pooling%i" % 4, gapPooling)
@@ -35,8 +38,17 @@ class net(nn.Module):
         self.poolings.append(gapPooling)
         # fc layer
         self.fc = nn.Linear(channels[5] * gap[0] * gap[1], num_classes)
+        # # change the last pooling to statisticPooling in the convs
+        # staticP=staticPool(3)
+        # setattr(self, "pooling%i" % 4, staticP)
+        # self.poolings.pop()
+        # self.poolings.append(staticP)
+        # # fc layer
+        #self.fc = nn.Linear(channels[5] * 4, num_classes)#because statisticPool'output is 4
+
         # relu
         self.relu = nn.ReLU()
+
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 m.weight.data.normal_(0.0, 0.001)
@@ -62,6 +74,9 @@ class net(nn.Module):
 
 
 if __name__ == '__main__':
+    import sys
+
+    sys.path.append("/home/jiangyiheng/pycharmProjects/master")
     from gao.cnn_main import P
     n = net(P.net_conv_kernel_sizes, P.net_channels, P.net_num_classes, P.net_in_channel,
                         P.net_pooling_kernel_sizes, P.net_gap)

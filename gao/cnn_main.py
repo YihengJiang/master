@@ -17,6 +17,7 @@ import torch as tc
 import torch.nn.functional as functional
 import re
 import pickle as pk
+from threading import Timer
 
 
 # parameters
@@ -34,10 +35,10 @@ class P():
     PERFORM_BATCH_FREQUENCY = 100
     LOAD_MODEL = SAVE_DIR  # set it to false or none if do not load,or set it to the direction which you want to load.
     SAVE_MODEL = [True,
-                  0.69]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
-    LR = 0.001
+                  0.67]  # True represent that need to save model ,0.5 indicate that save model should be when accuracy larger than 0.5
+    LR = 0.1
     WEIGHT_DECAY = 1e-4
-    EPOCH = 40
+    EPOCH = 60
     TEST_FREQUENCY = 1
 
     STRIDE = 50
@@ -155,10 +156,10 @@ class Data():
 
 
 def cmvn(data):
-    # mu=np.mean(data,1)[:,np.newaxis]
-    std = np.std(data, 1)[:, np.newaxis]
-    # data-=mu
-    data /= std
+    # mu = np.mean(data, 1)[:, np.newaxis]
+    # std = np.std(data, 1)[:, np.newaxis]
+    # data -= mu
+    # data /= std
     return data
 
 
@@ -172,8 +173,8 @@ def main():
     model = modelConstruct()
 
     criterion = nn.CrossEntropyLoss().cuda()
-    optimizer = tc.optim.Adam(model.parameters(), P.LR, weight_decay=P.WEIGHT_DECAY)
-    # scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=P.net_mile_stone, gamma=P.net_stone_time)
+
+    optimizer = optimizerConstruct(model)
 
     for epoch in range(P.EPOCH):
         # learning_rate_step(scheduler, epoch)
@@ -185,6 +186,24 @@ def main():
                 # evaluate on test set
                 accuracy = test(test_loader, model, epoch, totals)
                 modelSave(accuracy, model.state_dict(), epoch, i)
+
+
+def optimizerConstruct(model):
+    # ignored_params1 = list(map(id, model.conv4.parameters()))
+    # ignored_params2 = list(map(id, model.bn4.parameters()))
+    # ignored_params3 = list(map(id, model.fc.parameters()))
+    # ignored_params = np.concatenate([ignored_params1, ignored_params2, ignored_params3])
+    # base_params = list(filter(lambda p: id(p) not in ignored_params, model.parameters()))
+    # # this is the new way to use Optimd
+    # optimizer = tc.optim.Adam([
+    #     {'params': base_params},
+    #     {'params': model.fc.parameters(), 'lr': 0.1},
+    #     {'params': model.bn4.parameters(), 'lr': 0.1},
+    #     {'params': model.conv4.parameters(), 'lr': 0.1},
+    # ], lr=P.LR, weight_decay=P.WEIGHT_DECAY)
+
+    optimizer = tc.optim.Adam(model.parameters(), lr=P.LR, weight_decay=P.WEIGHT_DECAY)
+    return optimizer
 
 
 def trainDataLoader(frameLens):
@@ -203,9 +222,15 @@ def trainDataLoader(frameLens):
 def modelConstruct():
     model = network.net(P.net_conv_kernel_sizes, P.net_channels, P.net_num_classes, P.net_in_channel,
                         P.net_pooling_kernel_sizes, P.net_gap)
-    model.cuda()
     if P.LOAD_MODEL:
-        model.load_state_dict(tc.load(P.LOAD_MODEL))
+        pretrained_dict = tc.load(P.LOAD_MODEL)
+        model.load_state_dict(pretrained_dict)
+        # pretrained_dict = tc.load(P.LOAD_MODEL)
+        # model_dict = model.state_dict()
+        # pretrained_dict = {k: v for k, v in pretrained_dict.items() if not re.match(".*4|fc", k)}
+        # model_dict.update(pretrained_dict)
+        # model.load_state_dict(model_dict)
+    model.cuda()
     return model
 
 
@@ -313,7 +338,7 @@ def test(loader, model, epoch, totals):
     # measure accuracy and record loss
     accuracy2 = testPerform(output, target, total)
     strings = "[==============================test(usual)==============================] | epoch:%d | accuracy:%f\n" % (
-    epoch, accuracy2)
+        epoch, accuracy2)
     with ut.Log(strings):
         pass
     return accuracy1, accuracy2
@@ -379,6 +404,8 @@ def testModel():
 
 
 if __name__ == '__main__':
-    # testModel()
-    # with ut.Log("================================================================================\n"):
-    main()
+    testModel()
+    # with ut.Log("Begin Time:" + time.strftime(
+    #         "%Y/%m/%d %H:%M:%S") + "================================================================================\n"):
+    #     t = Timer(0, main)
+    #     t.start()
